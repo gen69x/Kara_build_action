@@ -54,14 +54,6 @@ jobs:
         run: |
           git clone --depth=1 -b tmp-ksu https://github.com/gen69x/Project-KARA kernel-source
 
-      - name: Fix missing drivers/gps/Kconfig
-        run: |
-          mkdir -p kernel-source/drivers/gps
-          echo "# Empty placeholder for missing drivers/gps" > kernel-source/drivers/gps/Kconfig
-          echo "# empty" > kernel-source/drivers/gps/Makefile
-          ls -la kernel-source/drivers/gps/
-          echo "Kconfig fix applied"
-
       - name: Build Kernel
         id: build
         uses: dabao1955/kernel_build_action@main

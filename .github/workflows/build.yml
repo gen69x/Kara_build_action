@@ -74,7 +74,8 @@ jobs:
           # === Packaging ===
           anykernel3: true
           anykernel3-url: https://github.com/gen69x/AnyKernel3
-
+          anykernel3-branch: master
+          
           # === Release ===
           release: true
           access-token: ${{ secrets.GITHUB_TOKEN }}

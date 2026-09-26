@@ -60,8 +60,8 @@ jobs:
           arch: arm64
           depth: 1
 
-          # === Toolchain: Proton Clang ===
-          aosp-gcc: false
+          # === Toolchain: Proton Clang + AOSP GCC ===
+          aosp-gcc: true
           aosp-clang: false
           other-clang-url: https://github.com/kdrag0n/proton-clang
           other-clang-branch: master

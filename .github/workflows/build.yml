@@ -55,7 +55,7 @@ jobs:
         with:
           # === Kernel Source ===
           kernel-url: https://github.com/gen69x/Project-KARA
-          kernel-branch: KARA-KSU
+          kernel-branch: Kara-KSU
           config: onclite-perf_defconfig
           arch: arm64
           depth: 1

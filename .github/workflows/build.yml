@@ -1,7 +1,7 @@
 name: Build Project-KARA Kernel + KernelSU
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:          # Manual trigger
   push:
     branches: [ main ]
     paths-ignore:
@@ -50,78 +50,36 @@ jobs:
       - name: Checkout this repository
         uses: actions/checkout@v4
 
-      - name: Clone Kernel Source
-        run: |
-          git clone --depth=1 -b tmp-ksu https://github.com/gen69x/Project-KARA kernel-source
-
       - name: Build Kernel
-        id: build
         uses: dabao1955/kernel_build_action@main
         with:
-          kernel-url: ./kernel-source/
+          # === Kernel Source ===
+          kernel-url: https://github.com/gen69x/Project-KARA
+          kernel-branch: tmp-ksu
           config: onclite-perf_defconfig
           arch: arm64
+          depth: 1
+
+          # === Toolchain: Proton Clang + AOSP GCC ===
           aosp-gcc: true
           aosp-clang: false
           other-clang-url: https://github.com/kdrag0n/proton-clang
           other-clang-branch: master
+
+          # === KernelSU ===
           ksu: true
+          # ksu-version: v0.9.5
+          # ksu-lkm: false
+
+          # === Packaging ===
           anykernel3: true
           anykernel3-url: https://github.com/gen69x/AnyKernel3
-          # Matikan auto-release bawaan action (supaya nama release bisa custom)
-          release: false
+          anykernel3-branch: master
+          
+          # === Release ===
+          release: true
+          access-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Prepare release assets
-        id: assets
-        run: |
-          DATE=$(TZ=Asia/Jakarta date +%Y%m%d)
-          TIME=$(TZ=Asia/Jakarta date +%H%M)
-          TAG="Project-Kara-${DATE}-${{ github.run_number }}"
-          NAME="Project-Kara ${DATE} #${{ github.run_number }}"
-
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          echo "name=${NAME}" >> $GITHUB_OUTPUT
-
-          # Cari file zip hasil build AnyKernel3
-          mkdir -p release-assets
-          find . -maxdepth 4 -type f -name "*.zip" ! -path "./.git/*" ! -path "./kernel-source/*" -print 2>/dev/null | head -20
-          # Copy zip ke folder release
-          find . -maxdepth 4 -type f \( -name "*AnyKernel*.zip" -o -name "*kernel*.zip" -o -name "*Kara*.zip" -o -name "*onclite*.zip" \) ! -path "./.git/*" ! -path "./kernel-source/*" -exec cp -v {} release-assets/ \; 2>/dev/null || true
-          # Fallback: semua zip di root / out
-          find . -maxdepth 2 -type f -name "*.zip" ! -path "./.git/*" -exec cp -v {} release-assets/ \; 2>/dev/null || true
-          ls -la release-assets/ || true
-
-          # Rename supaya jelas
-          cd release-assets
-          for f in *.zip; do
-            [ -f "$f" ] || continue
-            mv -v "$f" "Project-Kara-${DATE}-${{ github.run_number }}.zip" || true
-            break
-          done
-          ls -la
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.assets.outputs.tag }}
-          name: ${{ steps.assets.outputs.name }}
-          body: |
-            ## Project-Kara Kernel (Onclite)
-
-            | Item | Value |
-            |------|-------|
-            | Device | Redmi 7 / Onclite |
-            | Source | gen69x/Project-KARA (`tmp-ksu`) |
-            | Defconfig | onclite-perf_defconfig |
-            | Toolchain | Proton Clang |
-            | KernelSU | Yes |
-            | Build | #${{ github.run_number }} |
-            | Date | ${{ steps.assets.outputs.tag }} |
-
-            Flash via custom recovery (TWRP / OrangeFox).
-          files: release-assets/*.zip
-          draft: false
-          prerelease: false
-          generate_release_notes: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # === Extra (opsional) ===
+          # disable-lto: true
+          # extra-make-args: '["LOCALVERSION=-KARA-KSU"]'

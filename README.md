@@ -1,11 +1,5 @@
 # Project-KARA Kernel Build Action + KernelSU
 
-GitHub Actions untuk otomatis build **Custom Kernel Redmi 7 (Onclite / Onc)** dari:
-
-**https://github.com/gen69x/Project-KARA**
-
-dengan **KernelSU**, **Proton Clang**, dan packaging **AnyKernel3** milikmu.
-
 ## Fitur
 
 - Source: `gen69x/Project-KARA` (branch `EOL`)
@@ -14,24 +8,6 @@ dengan **KernelSU**, **Proton Clang**, dan packaging **AnyKernel3** milikmu.
 - KernelSU terintegrasi
 - AnyKernel3: `https://github.com/gen69x/AnyKernel3`
 - Auto Release ke GitHub Releases
-
-## Cara Pakai
-
-### 1. Buat Repository Baru di GitHub
-Nama bebas (contoh: `Project-KARA-CI`).
-
-### 2. Upload File Ini
-Extract zip lalu upload semua isinya ke repository kamu.
-
-### 3. Jalankan Build
-1. Buka tab **Actions**
-2. Pilih **Build Project-KARA Kernel + KernelSU**
-3. Klik **Run workflow**
-4. Tunggu 20–60 menit
-
-### 4. Hasil
-- Artifact di halaman workflow
-- Otomatis dibuat **GitHub Release** berisi zip AnyKernel3 siap flash
 
 ## Konfigurasi Saat Ini
 

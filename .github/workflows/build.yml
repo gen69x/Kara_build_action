@@ -82,3 +82,45 @@ jobs:
           # === Extra (opsional) ===
           # disable-lto: true
           # extra-make-args: '["LOCALVERSION=-KARA-KSU"]'
+
+
+      - name: Notify Telegram (Success)
+        if: success()
+        run: |
+          DATE="${{ steps.assets.outputs.date }}"
+          TAG="${{ steps.assets.outputs.tag }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          RELEASE_URL="${{ github.server_url }}/${{ github.repository }}/releases/tag/${TAG}"
+
+          MSG="✅ *Project-Kara Build Selesai*
+
+          📱 Device: Onclite (Redmi 7)
+          🔢 Run: #${{ github.run_number }}
+          📅 Tanggal: ${DATE}
+          🏷 Tag: \`${TAG}\`
+
+          📦 [Download Release](${RELEASE_URL})
+          🔗 [Log Build](${RUN_URL})"
+
+          curl -sS -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            --data-urlencode "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            --data-urlencode "parse_mode=Markdown" \
+            --data-urlencode "text=${MSG}" \
+            --data-urlencode "disable_web_page_preview=false" || echo "Telegram notify failed (check secrets)"
+
+      - name: Notify Telegram (Failure)
+        if: failure()
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          MSG="❌ *Project-Kara Build Gagal*
+
+          🔢 Run: #${{ github.run_number }}
+          🔗 [Lihat Log](${RUN_URL})
+
+          Cek log di GitHub Actions untuk detail error."
+
+          curl -sS -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            --data-urlencode "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            --data-urlencode "parse_mode=Markdown" \
+            --data-urlencode "text=${MSG}" || echo "Telegram notify failed (check secrets)"

@@ -1,0 +1,66 @@
+name: Build Project-KARA Kernel + KernelSU
+
+on:
+  workflow_dispatch:          # Manual trigger
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build-kernel:
+    name: Build Kernel (Onclite + KernelSU + Proton Clang)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 8192
+          swap-size-mb: 8192
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+
+      - name: Build Kernel
+        uses: dabao1955/kernel_build_action@main
+        with:
+          # === Kernel Source ===
+          kernel-url: https://github.com/gen69x/Project-KARA
+          kernel-branch: EOL
+          config: onclite-perf_defconfig
+          arch: arm64
+
+          # === Toolchain: Proton Clang ===
+          aosp-gcc: false
+          aosp-clang: false
+          other-clang-url: https://github.com/kdrag0n/proton-clang
+          other-clang-branch: master
+
+          # === KernelSU ===
+          ksu: true
+          # ksu-version: v0.9.5
+          # ksu-lkm: false
+
+          # === Packaging ===
+          anykernel3: true
+          anykernel3-url: https://github.com/gen69x/AnyKernel3
+
+          # === Release ===
+          release: true
+          access-token: ${{ secrets.GITHUB_TOKEN }}
+
+          # === Extra (opsional) ===
+          # disable-lto: true
+          # extra-make-args: '["LOCALVERSION=-KARA-KSU"]'
+          

@@ -1,0 +1,17 @@
+# Build artifacts
+out/
+*.img
+*.zip
+*.gz
+*.dtb
+*.ko
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db

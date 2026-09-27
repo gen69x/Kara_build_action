@@ -59,6 +59,7 @@ jobs:
           config: onclite-perf_defconfig
           arch: arm64
           depth: 1
+          extra-make-args: '["KCFLAGS=-Wno-error", "KCPPFLAGS=-Wno-error"]'
 
           # === Toolchain: Proton Clang + AOSP GCC ===
           aosp-gcc: true

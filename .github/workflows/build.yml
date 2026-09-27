@@ -1,16 +1,21 @@
 name: Build Project-KARA Kernel + KernelSU
 
 on:
-  workflow_dispatch:          # Manual trigger
+  workflow_dispatch:
   push:
-    branches: [ main ]
+    branches:
+      - main
     paths-ignore:
       - '**.md'
-      - 'LICENSE'
+      - LICENSE
+
+# Mencegah beberapa build kernel berjalan bersamaan.
+concurrency:
+  group: project-kara-kernel-build
+  cancel-in-progress: false
 
 permissions:
   contents: write
-  actions: read
 
 jobs:
   build-kernel:
@@ -24,104 +29,124 @@ jobs:
         with:
           root-reserve-mb: 4096
           swap-size-mb: 8192
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true'
+          remove-dotnet: true
+          remove-android: true
+          remove-haskell: true
+          remove-codeql: true
+          remove-docker-images: true
 
-      - name: Free extra disk space
-        run: |
-          echo "=== Disk sebelum cleanup ==="
-          df -h
-          sudo rm -rf /usr/share/dotnet || true
-          sudo rm -rf /usr/local/lib/android || true
-          sudo rm -rf /opt/ghc || true
-          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
-          sudo rm -rf /usr/local/share/boost || true
-          sudo rm -rf /usr/share/swift || true
-          sudo rm -rf /usr/local/.ghcup || true
-          sudo rm -rf /usr/lib/jvm || true
-          sudo apt-get clean || true
-          sudo apt-get autoremove -y || true
-          echo "=== Disk setelah cleanup ==="
-          df -h
-
-      - name: Checkout this repository
-        uses: actions/checkout@v4
+      - name: Check available disk space
+        run: df -h
 
       - name: Build Kernel
         uses: dabao1955/kernel_build_action@main
         with:
-          # === Kernel Source ===
+          # Kernel source
           kernel-url: https://github.com/gen69x/Project-KARA
           kernel-branch: Kara-KSU
           config: onclite-perf_defconfig
           arch: arm64
           depth: 1
-          extra-make-args: '["KCFLAGS=-Wno-error", "KCPPFLAGS=-Wno-error"]'
 
-          # === Toolchain: Proton Clang + AOSP GCC ===
+          # Mengizinkan warning compiler tanpa menggagalkan build.
+          # extra-make-args: '["KCFLAGS=-Wno-error", "KCPPFLAGS=-Wno-error"]'
+
+          # Toolchain
           aosp-gcc: true
           aosp-clang: false
           other-clang-url: https://github.com/kdrag0n/proton-clang
           other-clang-branch: master
 
-          # === KernelSU ===
+          # KernelSU
           ksu: true
-          # ksu-version: v0.9.5
-          # ksu-lkm: false
 
-          # === Packaging ===
+          # AnyKernel3 packaging
           anykernel3: true
           anykernel3-url: https://github.com/gen69x/AnyKernel3
-          
-          # === Release ===
+
+          # GitHub Release
           release: true
           access-token: ${{ secrets.GITHUB_TOKEN }}
 
-          # === Extra (opsional) ===
-          # disable-lto: true
-          # extra-make-args: '["LOCALVERSION=-KARA-KSU"]'
-
-
       - name: Notify Telegram (Success)
         if: success()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/latest
+          RUN_NUMBER: ${{ github.run_number }}
+          BRANCH_NAME: ${{ github.ref_name }}
+        shell: bash
         run: |
-          DATE="${{ steps.assets.outputs.date }}"
-          TAG="${{ steps.assets.outputs.tag }}"
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          RELEASE_URL="${{ github.server_url }}/${{ github.repository }}/releases/tag/${TAG}"
+          set -euo pipefail
 
-          MSG="✅ *Project-Kara Build Selesai*
+          if [[ -z "${TELEGRAM_BOT_TOKEN}" || -z "${TELEGRAM_CHAT_ID}" ]]; then
+            echo "Telegram secrets belum dikonfigurasi; notifikasi dilewati."
+            exit 0
+          fi
 
-          📱 Device: Onclite (Redmi 7)
-          🔢 Run: #${{ github.run_number }}
-          📅 Tanggal: ${DATE}
-          🏷 Tag: \`${TAG}\`
+          message=$(cat <<EOF
+✅ *Project-KARA Build Selesai*
 
-          📦 [Download Release](${RELEASE_URL})
-          🔗 [Log Build](${RUN_URL})"
+📱 Device: Onclite (Redmi 7)
+🔢 Run: #${RUN_NUMBER}
+🌿 Branch: ${BRANCH_NAME}
 
-          curl -sS -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            --data-urlencode "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+📦 [Download Release](${RELEASE_URL})
+🔗 [Log Build](${RUN_URL})
+EOF
+          )
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --retry-delay 5 \
+            --request POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
             --data-urlencode "parse_mode=Markdown" \
-            --data-urlencode "text=${MSG}" \
-            --data-urlencode "disable_web_page_preview=false" || echo "Telegram notify failed (check secrets)"
+            --data-urlencode "text=${message}" \
+            --data-urlencode "disable_web_page_preview=false" || \
+            echo "Gagal mengirim notifikasi Telegram."
 
       - name: Notify Telegram (Failure)
         if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+        shell: bash
         run: |
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          set -euo pipefail
 
-          MSG="❌ *Project-Kara Build Gagal*
+          if [[ -z "${TELEGRAM_BOT_TOKEN}" || -z "${TELEGRAM_CHAT_ID}" ]]; then
+            echo "Telegram secrets belum dikonfigurasi; notifikasi dilewati."
+            exit 0
+          fi
 
-          🔢 Run: #${{ github.run_number }}
-          🔗 [Lihat Log](${RUN_URL})
+          message=$(cat <<EOF
+❌ *Project-KARA Build Gagal*
 
-          Cek log di GitHub Actions untuk detail error."
+🔢 Run: #${RUN_NUMBER}
+🔗 [Lihat Log](${RUN_URL})
 
-          curl -sS -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            --data-urlencode "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+Cek log GitHub Actions untuk detail error.
+EOF
+          )
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --retry-delay 5 \
+            --request POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
             --data-urlencode "parse_mode=Markdown" \
-            --data-urlencode "text=${MSG}" || echo "Telegram notify failed (check secrets)"
+            --data-urlencode "text=${message}" || \
+            echo "Gagal mengirim notifikasi Telegram."

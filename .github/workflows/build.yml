@@ -68,8 +68,9 @@ jobs:
 
           # === KernelSU ===
           ksu: true
-          # ksu-version: v0.9.5
-          # ksu-lkm: false
+          ksu-version: legacy
+          ksu-other: true
+          ksu-url: https://github.com/KernelSU-Next/KernelSU-Next
 
           # === Packaging ===
           anykernel3: true

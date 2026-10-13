@@ -1,0 +1,249 @@
+name: Build Project-KARA Kernel + KernelSU
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build-kernel:
+    name: Build Kernel (Onclite + KernelSU + Proton Clang)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 4096
+          swap-size-mb: 8192
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+
+      - name: Free extra disk space
+        run: |
+          echo "=== Disk sebelum cleanup ==="
+          df -h
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/share/boost || true
+          sudo rm -rf /usr/share/swift || true
+          sudo rm -rf /usr/local/.ghcup || true
+          sudo rm -rf /usr/lib/jvm || true
+          sudo apt-get clean || true
+          sudo apt-get autoremove -y || true
+          echo "=== Disk setelah cleanup ==="
+          df -h
+
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+
+      - name: Clone Kernel Source
+        run: |
+          git clone --depth=1 -b tmp-ksu https://github.com/gen69x/Project-KARA kernel-source
+
+      - name: Fix missing drivers/gps/Kconfig
+        run: |
+          mkdir -p kernel-source/drivers/gps
+          echo "# Empty placeholder for missing drivers/gps" > kernel-source/drivers/gps/Kconfig
+          echo "# empty" > kernel-source/drivers/gps/Makefile
+          ls -la kernel-source/drivers/gps/
+          echo "Kconfig fix applied"
+
+      - name: Disable -Werror in kernel Makefiles
+        run: |
+          set -e
+          cd kernel-source
+          find . -name 'Makefile' -o -name 'Makefile.*' -o -name 'Kbuild' | while read -r f; do
+            if grep -q 'Werror' "$f" 2>/dev/null; then
+              sed -i \
+                -e 's/-Werror=/-Wno-error=/g' \
+                -e 's/ -Werror / /g' \
+                -e 's/-Werror$//g' \
+                -e 's/-Werror,//g' \
+                -e 's/,-Werror//g' \
+                "$f" || true
+              echo "Patched: $f"
+            fi
+          done
+          if [ -f Makefile ]; then
+            grep -n 'Werror\|KCFLAGS\|KBUILD_CFLAGS' Makefile | head -30 || true
+          fi
+          echo "Done disabling -Werror"
+
+      - name: Integrate KernelSU-Next (legacy) + manual hooks
+        run: |
+          set -e
+          cd kernel-source
+
+          # 1) Bersihkan KSU lama / tidak lengkap
+          rm -rf drivers/kernelsu KernelSU KernelSU-Next kernelsu 2>/dev/null || true
+          if [ -f drivers/Makefile ]; then sed -i '/kernelsu/d' drivers/Makefile || true; fi
+          if [ -f drivers/Kconfig ]; then sed -i '/kernelsu/Id' drivers/Kconfig || true; fi
+          if [ -f arch/arm64/configs/onclite-perf_defconfig ]; then
+            sed -i '/CONFIG_KSU/d' arch/arm64/configs/onclite-perf_defconfig || true
+          fi
+
+          # 2) Setup KernelSU-Next (branch legacy — cocok non-GKI)
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+
+          # 3) Manual syscall hooks (wajib untuk 4.9)
+          curl -LSs "https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/mainline/Patches/syscall_hook_patches.sh" -o /tmp/syscall_hook_patches.sh
+          chmod +x /tmp/syscall_hook_patches.sh
+          bash /tmp/syscall_hook_patches.sh || {
+            echo "WARNING: partial hook patch failure — continuing, check log"
+          }
+
+          # 4) Defconfig: enable KSU + manual hook mode
+          DEF=arch/arm64/configs/onclite-perf_defconfig
+          if [ -f "$DEF" ]; then
+            {
+              echo ""
+              echo "# KernelSU-Next"
+              echo "CONFIG_KSU=y"
+              echo "# CONFIG_KSU_KPROBE_HOOKS is not set"
+              echo "CONFIG_KSU_MANUAL_HOOK=y"
+            } >> "$DEF"
+            echo "Defconfig updated:"
+            grep -E 'CONFIG_KSU' "$DEF" || true
+          else
+            echo "ERROR: defconfig not found at $DEF"
+            exit 1
+          fi
+
+          # 5) Verifikasi hooks terpasang
+          echo "=== Hook check ==="
+          grep -n "ksu_handle" fs/exec.c fs/open.c fs/read_write.c fs/stat.c kernel/reboot.c 2>/dev/null | head -40 || true
+          ls -la drivers/kernelsu 2>/dev/null || ls -la drivers/ | head -20
+          echo "KernelSU-Next + manual hooks done."
+
+      - name: Build Kernel
+        id: build
+        uses: dabao1955/kernel_build_action@main
+        with:
+          kernel-url: ./kernel-source/
+          config: onclite-perf_defconfig
+          arch: arm64
+          aosp-gcc: true
+          aosp-clang: false
+          other-clang-url: https://github.com/kdrag0n/proton-clang
+          other-clang-branch: master
+          # KSU sudah diintegrasikan manual (KernelSU-Next + hooks) di step sebelumnya
+          ksu: false
+          anykernel3: true
+          anykernel3-url: https://github.com/gen69x/AnyKernel3
+          release: false
+          # Kernel 4.9 + Clang modern: warning jadi error → matikan -Werror
+          extra-make-args: '["KCFLAGS=-Wno-error -Wno-error=unused-function -Wno-error=unused-variable -Wno-error=strict-prototypes -Wno-error=date-time", "KCPPFLAGS=-Wno-error"]'
+
+      - name: Prepare release assets
+        id: assets
+        if: success()
+        run: |
+          DATE=$(TZ=Asia/Jakarta date +%Y%m%d)
+          TAG="Project-Kara-\( {DATE}- \){{ github.run_number }}"
+          NAME="Project-Kara \( {DATE} # \){{ github.run_number }}"
+
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "name=${NAME}" >> $GITHUB_OUTPUT
+          echo "date=${DATE}" >> $GITHUB_OUTPUT
+
+          mkdir -p release-assets
+          find . -maxdepth 4 -type f -name "*.zip" ! -path "./.git/*" ! -path "./kernel-source/*" -print 2>/dev/null | head -20 || true
+          find . -maxdepth 4 -type f \( -name "*AnyKernel*.zip" -o -name "*kernel*.zip" -o -name "*Kara*.zip" -o -name "*onclite*.zip" \) ! -path "./.git/*" ! -path "./kernel-source/*" -exec cp -v {} release-assets/ \; 2>/dev/null || true
+          find . -maxdepth 2 -type f -name "*.zip" ! -path "./.git/*" -exec cp -v {} release-assets/ \; 2>/dev/null || true
+          ls -la release-assets/ || true
+
+          cd release-assets
+          count=0
+          for f in *.zip; do
+            [ -f "$f" ] || continue
+            mv -v "\( f" "Project-Kara- \){DATE}-${{ github.run_number }}.zip" || true
+            count=$((count+1))
+            break
+          done
+          ls -la
+          if [ "$count" -eq 0 ]; then
+            echo "WARNING: No zip artifact found"
+          fi
+
+      - name: Create GitHub Release
+        id: release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.assets.outputs.tag }}
+          name: ${{ steps.assets.outputs.name }}
+          body: |
+            ## Project-Kara Kernel (Onclite)
+
+            | Item | Value |
+            |------|-------|
+            | Device | Redmi 7 / Onclite |
+            | Source | gen69x/Project-KARA (`tmp-ksu`) |
+            | Defconfig | onclite-perf_defconfig |
+            | Toolchain | Proton Clang |
+            | KernelSU | KernelSU-Next (legacy + manual hooks) |
+            | Build | #${{ github.run_number }} |
+            | Date | ${{ steps.assets.outputs.date }} |
+
+            Flash via custom recovery (TWRP / OrangeFox).
+          files: release-assets/*.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify Telegram (Success)
+        if: success()
+        run: |
+          DATE="${{ steps.assets.outputs.date }}"
+          TAG="${{ steps.assets.outputs.tag }}"
+          RUN_URL="\( {{ github.server_url }}/ \){{ github.repository }}/actions/runs/${{ github.run_id }}"
+          RELEASE_URL="\( {{ github.server_url }}/ \){{ github.repository }}/releases/tag/${TAG}"
+
+          MSG="✅ *Project-Kara Build Selesai*
+
+          📱 Device: Onclite (Redmi 7)
+          🔢 Run: #${{ github.run_number }}
+          📅 Tanggal: ${DATE}
+          🏷 Tag: \`${TAG}\`
+
+          📦 [Download Release](${RELEASE_URL})
+          🔗 [Log Build](${RUN_URL})"
+
+          curl -sS -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            --data-urlencode "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            --data-urlencode "parse_mode=Markdown" \
+            --data-urlencode "text=${MSG}" \
+            --data-urlencode "disable_web_page_preview=false" || echo "Telegram notify failed (check secrets)"
+
+      - name: Notify Telegram (Failure)
+        if: failure()
+        run: |
+          RUN_URL="\( {{ github.server_url }}/ \){{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          MSG="❌ *Project-Kara Build Gagal*
+
+          🔢 Run: #${{ github.run_number }}
+          🔗 [Lihat Log](${RUN_URL})
+
+          Cek log di GitHub Actions untuk detail error."
+
+          curl -sS -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            --data-urlencode "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            --data-urlencode "parse_mode=Markdown" \
+            --data-urlencode "text=${MSG}" || echo "Telegram notify failed (check secrets)"

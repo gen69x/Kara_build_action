@@ -54,35 +54,6 @@ jobs:
         run: |
           git clone --depth=1 -b tmp-ksu https://github.com/gen69x/Project-KARA kernel-source
 
-      - name: Fix missing drivers/gps/Kconfig
-        run: |
-          mkdir -p kernel-source/drivers/gps
-          echo "# Empty placeholder for missing drivers/gps" > kernel-source/drivers/gps/Kconfig
-          echo "# empty" > kernel-source/drivers/gps/Makefile
-          ls -la kernel-source/drivers/gps/
-          echo "Kconfig fix applied"
-
-      - name: Disable -Werror in kernel Makefiles
-        run: |
-          set -e
-          cd kernel-source
-          find . -name 'Makefile' -o -name 'Makefile.*' -o -name 'Kbuild' | while read -r f; do
-            if grep -q 'Werror' "$f" 2>/dev/null; then
-              sed -i \
-                -e 's/-Werror=/-Wno-error=/g' \
-                -e 's/ -Werror / /g' \
-                -e 's/-Werror$//g' \
-                -e 's/-Werror,//g' \
-                -e 's/,-Werror//g' \
-                "$f" || true
-              echo "Patched: $f"
-            fi
-          done
-          if [ -f Makefile ]; then
-            grep -n 'Werror\|KCFLAGS\|KBUILD_CFLAGS' Makefile | head -30 || true
-          fi
-          echo "Done disabling -Werror"
-
       - name: Integrate KernelSU-Next (legacy) + manual hooks
         run: |
           set -e
@@ -145,8 +116,6 @@ jobs:
           anykernel3: true
           anykernel3-url: https://github.com/gen69x/AnyKernel3
           release: false
-          # Kernel 4.9 + Clang modern: warning jadi error → matikan -Werror
-          extra-make-args: '["KCFLAGS=-Wno-error -Wno-error=unused-function -Wno-error=unused-variable -Wno-error=strict-prototypes -Wno-error=date-time", "KCPPFLAGS=-Wno-error"]'
 
       - name: Prepare release assets
         id: assets
